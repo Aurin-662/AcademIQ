@@ -22,3 +22,6 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+__pycache__/
+fraud-service/model.joblib
+fraud-service/requirements.txt
