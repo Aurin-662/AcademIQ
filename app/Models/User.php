@@ -22,6 +22,10 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'role',
+        'institution_code',
+        'organization',
+        'approved',
     ];
 
     /**
@@ -44,6 +48,27 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'approved' => 'boolean',
         ];
+    }
+
+    public function isSystemAdmin(): bool
+    {
+        return $this->role === 'system_admin';
+    }
+
+    public function isInstitutionAdmin(): bool
+    {
+        return $this->role === 'institution_admin';
+    }
+
+    public function isTeacher(): bool
+    {
+        return $this->role === 'teacher';
+    }
+
+    public function isEmployer(): bool
+    {
+        return $this->role === 'employer';
     }
 }
