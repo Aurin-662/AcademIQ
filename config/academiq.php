@@ -1,31 +1,23 @@
 <?php
 
 return [
-    /*
-    |--------------------------------------------------------------------------
-    | AcademIQ Core Settings & Tunables
-    |--------------------------------------------------------------------------
-    */
+    // Public, editable code tables. Codes are encoded as integers inside credentials and circuit claims.
+    'programmes' => [1 => 'Computer Science & Engineering', 2 => 'Electrical & Electronic Engineering', 3 => 'Mechanical Engineering', 4 => 'Civil Engineering', 5 => 'Industrial & Production Engineering', 6 => 'Electronics & Communication Engineering'],
+    'degrees' => [1 => 'Bachelor of Science (BSc)', 2 => 'Master of Science (MSc)', 3 => 'Doctor of Philosophy (PhD)'],
 
-    // Cache TTL for verified documents (in seconds)
-    'cache_ttl' => (int) env('ACADEMIQ_CACHE_TTL', 3600),
+    'institutions' => [1 => 'Khulna University of Engineering & Technology (KUET)'],
+    // Extra accepted spellings for bulk import (matched after lowercasing and stripping non-alphanumerics; the text inside "(...)" of a label also matches).
+    'aliases' => [
+        'programmes' => [1 => ['cse', 'cs'], 2 => ['eee'], 3 => ['me'], 4 => ['ce'], 5 => ['ipe'], 6 => ['ece']],
+        'degrees' => [1 => ['bsc', 'bachelor'], 2 => ['msc', 'master'], 3 => ['phd', 'doctorate']],
+        'institutions' => [1 => ['kuet']],
+    ],
+    'import_max_rows' => (int) env('IMPORT_MAX_ROWS', 500),
+    'min_passing_year' => 1986,
+    'bulk_max_tokens' => (int) env('BULK_MAX_TOKENS', 500),
 
-    // Secret key for HMAC-SHA256 generation & verification
-    'doc_hmac_secret' => env('DOC_HMAC_SECRET', 'academiq_secret_key_default'),
-
-    // RapidFuzz string similarity threshold (0 - 100)
-    'fuzzy_threshold' => (float) env('FRAUD_FUZZY_THRESHOLD', 85.0),
-
-    // Python FastAPI Fraud Detection Service URL
-    'fraud_service_url' => env('FRAUD_SERVICE_URL', 'http://127.0.0.1:8001'),
-
-    // Fallback anomaly detection thresholds (when python service is unreachable)
-    'anomaly_requests_10m' => (int) env('ANOMALY_REQUESTS_10M', 30),
-    'anomaly_not_found_ratio' => (float) env('ANOMALY_NOT_FOUND_RATIO', 0.5),
-
-    // Whether to mask recipient names on public pages (e.g., "R. I.")
-    'mask_recipient' => (bool) env('MASK_RECIPIENT_NAME', false),
-
-    // Rate limiting for public verification routes (e.g., '60,1' or '10000,1' for load tests)
-    'verify_throttle' => env('VERIFY_THROTTLE', '60,1'),
+    // Issuer signing keys live on disk, encrypted with APP_KEY, never in MongoDB. Back this directory up and restrict access.
+    'issuer_key_path' => env('ISSUER_KEY_PATH', storage_path('app/issuer-keys')),
+    'node_bin' => env('NODE_BIN', 'node'),
+    'credential_schema' => 'academiq.credential.v1',
 ];
