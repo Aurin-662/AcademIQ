@@ -1,243 +1,81 @@
-# AcademIQ — Large-Scale Academic Credential Verification & Fraud Analytics
+# AcademiQ
 
-**AcademIQ** (working title: *EduVerify*) is a high-performance academic credential verification and fraud-analytics platform built on **Laravel 12**, **MongoDB**, **SQLite**, and an asynchronous **FastAPI ML Microservice**. It was developed for the CSE 3200 University System Development Project to demonstrate applied software engineering, database performance engineering, and intelligent fraud detection.
+**Trust Academic Credentials. Verify Without Revealing.**
+Academic credential verification for KUET: students hold signed credentials in a private browser wallet and prove selected claims to employers with Zero-Knowledge Proofs, with consent-based background checks.
 
----
+Stack: Laravel 13 (PHP 8.3), MongoDB 7 (replica set) via `mongodb/laravel-mongodb`, Blade + Tailwind 4 + Alpine.js + Vite, Circom 2 + SnarkJS (Groth16), dompdf. Development runs in Docker.
 
-## 1. System Architecture
+## Quick start
 
-```text
-                               +--------------------------------------------+
-                               |              Public Client                 |
-                               |    (QR Scanner / Web / Employer CSV Bulk)  |
-                               +---------------------+----------------------+
-                                                     | HTTPS
-                                                     v
-+---------------------------------------------------------------------------------------------------+
-|                                 Laravel 12 Core Application                                       |
-|                                                                                                   |
-|  +------------------------+   +------------------------+   +-----------------------------------+  |
-|  |     Authentication     |   |   Public Verification  |   |        Bulk Verification          |  |
-|  | (RBAC, Approval Gates) |   |  (Cache-First Pipeline)|   |  (Chunked Queue / Async Process)  |  |
-|  +-----------+------------+   +-----------+------------+   +-----------------+-----------------+  |
-|              |                            |                                  |                    |
-|              | SQLite                     | Cache Miss                       | SQLite             |
-|              v                            v                                  v                    |
-|  +------------------------+   +------------------------+   +-----------------------------------+  |
-|  |     Users / Auth DB    |   |  DocumentRecord Model  |   |   bulk_verification_requests DB   |  |
-|  |   (database.sqlite)    |   |     (MongoDB BSON)     |   |         (database.sqlite)         |  |
-|  +------------------------+   +-----------+------------+   +-----------------------------------+  |
-|                                           |                                                       |
-|                                           |                                                       |
-|                     +---------------------+---------------------+                                 |
-|                     | Hook 1: Document Issue                    | Hook 2: Verification Flow       |
-|                     | - Duplicate Roll Checks                   | - Anomaly Scoring (Rate/Bursts) |
-|                     | - RapidFuzz String Match                  | - Keyed HMAC-SHA256 Integrity   |
-|                     +---------------------+---------------------+                                 |
-|                                           |                                                       |
-+-------------------------------------------|-------------------------------------------------------+
-                                            | HTTP POST (JSON, 2.0s timeout with fallback)
-                                            v
-                      +-------------------------------------------+
-                      |         FastAPI Fraud Microservice        |
-                      |          (Python 3.10+ / Uvicorn)         |
-                      |                                           |
-                      |  - /fuzzy-check: RapidFuzz token match    |
-                      |  - /anomaly-score: Scikit-learn           |
-                      |    IsolationForest trained model          |
-                      |  - Rule-based fallback if ML offline      |
-                      +-------------------------------------------+
+Prerequisites: Docker Desktop (Compose v2).
+
+```sh
+cd academiq
+cp .env.example .env
+docker compose up -d mongo app vite
+docker compose run --rm app composer install
+docker compose run --rm app npm ci
+docker compose run --rm app php artisan key:generate
+docker compose run --rm app npm run build          # or keep the `vite` service running for dev
+docker compose run --rm app php artisan zkp:register credential 1
+docker compose run --rm app php artisan academiq:demo   # fictional demo accounts (local only)
 ```
 
----
+App: http://localhost:8000. Demo walkthrough: [docs/DEMO.md](docs/DEMO.md).
 
-## 2. Key Engineering Highlights
+First real admin (instead of demo data): `docker compose run --rm app php artisan academiq:make-admin you@kuet.example "Your Name"`, then authorize that admin as an issuer under Admin > Issuers.
 
-1. **High-Performance MongoDB Indexing & Caching Pipeline:**
-   - Evaluated across 5,200+ documents with empirical benchmark comparisons.
-   - Cache-first architecture using plain PHP arrays drops verification latency to **1.84ms** (p95: **2.21ms**), yielding a **3.5x throughput gain** (543.9 req/s).
-   - Automated cache invalidation via Eloquent lifecycle model events (`saved`, `deleted`).
-2. **Cryptographic Integrity & Threat Model (Keyed HMAC-SHA256):**
-   - Documents are signed with a keyed HMAC-SHA256 signature using `DOC_HMAC_SECRET`.
-   - **Threat Model Defense:** If a malicious actor gains direct read/write access to the MongoDB instance (e.g. via MongoDB Compass or stolen credentials), they can insert counterfeit records or alter grades, but **cannot compute a valid hash signature**. Verification recalculates the keyed HMAC on the fly and immediately flags forged documents as `tampered` and `hash_mismatch`.
-3. **Applied ML & Fraud Anomaly Engine:**
-   - **Hook 1 (Issue):** Checks for duplicate roll allocations and fuzzy-similar student names using `RapidFuzz` (WRatio > 85).
-   - **Hook 2 (Verification):** Gathers 1-hour verification frequency, IP dispersion, and failure rates to score anomalies with a scikit-learn `IsolationForest` model.
-   - **Resilience:** If the Python microservice is unreachable, Laravel automatically falls back to an internal rule-based heuristic with zero service downtime.
-4. **Bulk Verification with Memory Safety:**
-   - Handles enterprise CSVs up to 5,000 records using chunked `whereIn` batching (500 per query) and streamed CSV exports.
-5. **Native SVG QR Codes:**
-   - Vector-only QR codes generated using BaconQrCode/BMS without requiring `ext-imagick`.
+Scheduler (expires stale requests/tasks): `docker compose run --rm app php artisan schedule:work`.
 
----
+## Tests
 
-## 3. Prerequisites
-
-- **Operating System:** Windows 10/11, Linux, or macOS.
-- **PHP:** PHP 8.2+ with `mongodb`, `curl`, `mbstring`, `pdo_sqlite` extensions enabled.
-- **Database:** MongoDB Community Server 5.0+ running on `mongodb://127.0.0.1:27017`.
-- **Python:** Python 3.10+ for the FastAPI fraud microservice.
-- **Composer:** Composer 2.x for PHP dependency management.
-- **k6 (Optional):** For executing API load tests.
-
----
-
-## 4. Windows Quick Start (Step-by-Step)
-
-### Step 1: Clone and Configure Environment
-Open PowerShell or CMD in the project root:
-```powershell
-# Copy environment configuration
-copy .env.example .env
-
-# Install PHP dependencies
-composer install
-
-# Generate application key
-php artisan key:generate
+```sh
+docker compose run --rm app php artisan test      # 72 feature tests, uses database `academiq_test` (wiped per test; refuses non-*_test DBs)
+docker compose run --rm app npm run test:zkp      # circuit tests (valid/invalid witnesses and proofs)
 ```
 
-Ensure `.env` contains:
-```env
-DB_CONNECTION=sqlite
-DB_DATABASE=e:\3-2\AcademIQ\AcademIQ\database\database.sqlite
+## Environment variables
 
-MONGODB_URI=mongodb://127.0.0.1:27017
-MONGODB_DATABASE=academiq
+| Variable | Purpose |
+|---|---|
+| `APP_KEY` | Laravel key. **Also encrypts issuer signing keys.** Losing it loses signing ability. |
+| `MONGODB_URI`, `MONGODB_DATABASE` | MongoDB connection. A replica set is required (transactions). |
+| `ISSUER_KEY_PATH` | Directory of encrypted issuer private keys (default `storage/app/issuer-keys`). Back up with `APP_KEY`. |
+| `NODE_BIN` | Node binary for signing and proof verification (Node 20+). |
+| `MAIL_*` | Email notifications. Only sent when `MAIL_MAILER` is a real mailer; otherwise in-app only and `emailed_at` stays empty. |
+| `SESSION_SECURE_COOKIE`, `SESSION_ENCRYPT`, `APP_DEBUG`, `APP_ENV` | Production hardening, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). |
 
-DOC_HMAC_SECRET=academiq_hmac_secret_key_demo_change_in_production_2026
-FRAUD_SERVICE_URL=http://127.0.0.1:8001
-CACHE_STORE=file
+## Architecture (modular monolith)
+
+```
+app/Http/Controllers/{Admin,Student,Employer,External,Auth}   thin controllers
+app/Services/Credentials   1.x issue/update/revoke, signing keys, field encoding
+app/Services/ZKP           2.x proof intake + Groth16 verification
+app/Services/Verification  3.x gateway (request, consent, routing) + collector
+app/Services/BackgroundChecks  4.x police / referee / previous employer
+app/Services/Reports       5.x PDF report + authenticity
+app/Services/AuditLogger   append-only audit log
+zkp/                       circuit, build script, verification keys, Node helpers
+resources/js/wallet.js     holder-side encrypted wallet + in-browser prover
 ```
 
-### Step 2: Initialize Database and Indexes
-```powershell
-# Run SQLite relational migrations
-php artisan migrate
+Logical stores. **D1 (credentials):** `credentials`, `credential_versions`, `authorized_issuers`, `verification_keys`, `student_references`, `credential_deliveries` (ciphertext only, deleted on receipt). **D2 (verification):** `verification_requests`, `consent_records`, `proof_submissions`, `proof_results`, `background_verifications`, `police_verifications`, `referee_responses`, `employment_verifications`, `verification_reports`, `audit_logs`. Platform: `users`, `student_profiles`, `employer_profiles`, `notifications`, `contact_messages`.
 
-# Apply MongoDB compound, unique, and single indexes
-php artisan academiq:indexes
+## Roles
 
-# Seed default roles, institutions, and demo users
-php artisan db:seed --class=DemoSeeder
+`admin`, `issuer`, `student`, `employer`, `previous_employer`, `referee`, `police_verifier`. Only students and employers can self-register; every other account is provisioned by an admin.
 
-# Seed baseline certificates and verification logs
-php artisan academiq:import
-```
+## Documentation
 
-### Step 3: Setup Fraud Microservice Environment
-```powershell
-cd fraud-service
+- [docs/DEMO.md](docs/DEMO.md): repeatable end-to-end demo
+- [docs/SECURITY.md](docs/SECURITY.md): privacy boundary, threat notes, known limitations
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): production checklist
+- [zkp/README.md](zkp/README.md): circuit, claims, setup, key rotation
 
-# Create Python virtual environment
-python -m venv .venv
+## Honest limitations
 
-# Activate virtual environment
-.\.venv\Scripts\activate
-
-# Install Python requirements
-pip install -r requirements.txt
-
-# Train IsolationForest model
-python train.py
-
-cd ..
-```
-
-### Step 4: Run AcademIQ
-You can launch both the Laravel web application and FastAPI microservice simultaneously using the provided Windows script:
-```powershell
-.\run-dev.bat
-```
-Or start them manually in separate terminal windows:
-```powershell
-# Terminal 1: Laravel Web App
-php artisan serve --port=8000
-
-# Terminal 2: Fraud Microservice
-.\fraud-service\.venv\Scripts\uvicorn main:app --app-dir fraud-service --port 8001
-```
-
-- **Web Portal:** [http://127.0.0.1:8000](http://127.0.0.1:8000)
-- **FastAPI Interactive Docs:** [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs)
-
----
-
-## 5. Demo Accounts & Credentials
-
-All accounts share the default password: **`password`**
-
-| Role | Email | Institution / Org | Permissions & Features |
-|---|---|---|---|
-| **System Admin** | `admin@academiq.edu` | AcademIQ Platform | User approvals, teacher verification toggle, document revocation, fraud alert review, system-wide analytics |
-| **Institution Admin** | `admin@kuet.ac.bd` | Khulna University of Engineering & Technology (KUET) | Institution analytics, batch credential issuance, student records |
-| **Institution Admin** | `admin@buet.ac.bd` | Bangladesh University of Engineering & Technology (BUET) | Institution analytics, batch credential issuance |
-| **Verified Teacher** | `prof.ahmed@kuet.ac.bd` | KUET (Dept. of CSE) | Issue Recommendation Letters (LOR), public verified faculty badge, student letter search |
-| **Unverified Teacher** | `lecturer.hasan@buet.ac.bd` | BUET | Pending admin verification; issue actions restricted |
-| **Pending User** | `applicant@aust.edu` | AUST | Pending admin account approval |
-| **Employer** | `hr@brainstation-23.com` | Brain Station 23 | Bulk CSV verification, request history, audit exports |
-| **Employer** | `talent@kaz.com.bd` | Kaz Software | Bulk CSV verification, request history |
-
----
-
-## 6. Artisan Commands Reference
-
-| Command | Description | Example Usage |
-|---|---|---|
-| `academiq:indexes` | Creates required unique and compound indexes on MongoDB collections (`documents`, `verification_logs`, `fraud_alerts`). | `php artisan academiq:indexes` |
-| `academiq:import` | Imports initial sample certificates and verification logs into MongoDB. | `php artisan academiq:import` |
-| `academiq:seed-large` | Populates database with synthetic documents (5,000+ default) for benchmark testing. | `php artisan academiq:seed-large --count=5000` |
-| `academiq:benchmark` | Measures cold unindexed, cold indexed, and warm cached read latencies across random samples. | `php artisan academiq:benchmark --samples=500` |
-| `academiq:simulate-attack` | Simulates high-rate credential enumeration attacks to demonstrate live anomaly detection and fraud alerts. | `php artisan academiq:simulate-attack --rate=50` |
-| `academiq:export-ids` | Exports a pool of valid document IDs to `loadtest/valid_ids.json` for k6 testing. | `php artisan academiq:export-ids 500` |
-
----
-
-## 7. Running the Test Suite
-
-AcademIQ includes a test suite covering authentication, role-based access control, public verification, SVG QR generation, teacher LOR issuance, bulk CSV processing, fraud microservice hooks, and MongoDB aggregation analytics.
-
-```powershell
-php artisan test
-```
-
-Expected result:
-```text
-PASS  Tests\Unit\ExampleTest
-PASS  Tests\Feature\ExampleTest
-PASS  Tests\Feature\AuthAndRoleTest
-PASS  Tests\Feature\VerificationTest
-PASS  Tests\Feature\TeacherAndAdminTest
-PASS  Tests\Feature\BulkVerificationTest
-PASS  Tests\Feature\FraudDetectionTest
-PASS  Tests\Feature\AnalyticsTest
-
-Tests:    23 passed (103 assertions)
-Duration: ~4.5s
-```
-
----
-
-## 8. Threat Model: Keyed HMAC-SHA256 vs. Database Tampering
-
-```text
-[Malicious Database Administrator / Attacker with Compass Access]
-                          |
-                          v
-         Alters: "cgpa": 2.80  -->  "cgpa": 3.95
-                          |
-                          | (Cannot forge HMAC without DOC_HMAC_SECRET)
-                          v
-        [AcademIQ Verification Pipeline: GET /verify/{id}]
-                          |
-                          +--> Calculates: HMAC(cgpa=3.95, salt, roll, ...)
-                          +--> Compares to stored "doc_hash"
-                          |
-                          v
-               MISMATCH DETECTED!
-               Result: Document Marked TAMPERED
-               Action: High-Priority Fraud Alert Logged
-```
-
-- In standard systems using simple SHA-256 or MD5 hashes without a secret, an attacker with write access to the database can alter any field and simply recompute `sha256(student_name + roll + cgpa)` to match.
-- **AcademIQ Solution:** Fingerprints are generated via `hash_hmac('sha256', $canonicalString, config('academiq.doc_hmac_secret'))`. The secret key is stored exclusively in application environment variables (`.env`) and never stored in MongoDB. Any direct modification to the record results in instant cryptographic invalidation upon scan.
+- The trusted setup built by `zkp/build.sh` is a **single-party development ceremony**. Run a multi-party ceremony before production.
+- Police, referee and employment checks are **manual responses** typed by authorized portal users. There is no integration with any police, government or KUET system, and the UI says so.
+- The KUET logo is a replaceable placeholder; supply authorized branding files.
+- MongoDB indexes/uniqueness live in `database/migrations/2026_01_01_000000_create_indexes.php`. Migrations are never run automatically; run `php artisan migrate` deliberately.
+- Email verification at registration is not implemented.

@@ -1,0 +1,40 @@
+@import 'tailwindcss';
+@source '../../storage/framework/views/*.php';
+
+@theme {
+    --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --font-display: 'Manrope', 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --color-navy: #10243A;
+    --color-kuet: #0E5B46;
+    --color-teal: #18A999;
+    --color-paper: #F8FAFC;
+    --color-slate-soft: #E8EEF3;
+    --color-ink: #172B3A;
+    --color-muted: #64748B;
+    --color-ok: #16845B;
+    --color-warn: #D69E36;
+    --color-bad: #C84646;
+}
+
+@layer base {
+    body { @apply bg-paper text-ink antialiased font-sans; }
+    h1, h2, h3, h4 { @apply font-display tracking-tight text-navy; }
+    :focus-visible { @apply outline-2 outline-offset-2 outline-teal; }
+}
+
+
+@utility btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition disabled:opacity-60 disabled:cursor-not-allowed; }
+@utility btn-primary { @apply btn bg-kuet text-white hover:bg-navy; }
+@utility btn-ghost { @apply btn border border-slate-300 bg-white text-navy hover:bg-slate-soft; }
+@utility btn-danger { @apply btn bg-bad text-white hover:opacity-90; }
+@utility card { @apply rounded-xl border border-slate-soft bg-white p-6 shadow-sm; }
+@utility input { @apply block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:border-teal focus:ring-2 focus:ring-teal/30; }
+@utility label { @apply mb-1 block text-sm font-medium text-ink; }
+@utility badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold; }
+
+
+[x-cloak] { display: none !important; }
+@media (prefers-reduced-motion: no-preference) {
+    .fade-in { animation: fade-in .5s ease both; }
+    @keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+}
